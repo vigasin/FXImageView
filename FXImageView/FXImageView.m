@@ -30,6 +30,7 @@
 //  3. This notice may not be removed or altered from any source distribution.
 //
 
+#import "NSData+Base64.h"
 #import "FXImageView.h"
 #import "UIImage+FX.h"
 #import <objc/message.h>
@@ -208,6 +209,10 @@
 
 - (NSString *)imageHash:(UIImage *)image
 {
+    if (image == nil) {
+        return @"";
+    }
+
     static NSInteger hashKey = 1;
     NSString *number = objc_getAssociatedObject(image, @"FXImageHash");
     if (!number && image)
@@ -309,7 +314,13 @@
         //load image
         if (imageURL)
         {
-            NSURLRequest *request = [NSURLRequest requestWithURL:imageURL cachePolicy:NSURLRequestReturnCacheDataElseLoad timeoutInterval:30.0];
+            NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:imageURL cachePolicy:NSURLRequestReturnCacheDataElseLoad timeoutInterval:30.0];
+            
+            NSString *basicAuthCredentials = [NSString stringWithFormat:@"%@:%@", imageURL.user, imageURL.password];
+            NSData *plainTextData = [basicAuthCredentials dataUsingEncoding:NSUTF8StringEncoding];
+            NSString *base64basicAuthCredentials = [plainTextData base64EncodedString];
+            [request setValue:[NSString stringWithFormat:@"Basic %@", base64basicAuthCredentials] forHTTPHeaderField:@"Authorization"];
+            
             NSError *error = nil;
             NSURLResponse *response = nil;
             NSData *data = [NSURLConnection sendSynchronousRequest:request returningResponse:&response error:&error];
@@ -382,7 +393,7 @@
     {
         [self performSelectorOnMainThread:@selector(setProcessedImageOnMainThread:)
                                withObject:[NSArray arrayWithObjects:
-                                           processedImage ?: [NSNull null],
+                                           processedImage ?: self.processedImage,
                                            cacheKey,
                                            nil]
                             waitUntilDone:YES];
