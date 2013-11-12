@@ -1,7 +1,7 @@
 //
 //  FXImageView.m
 //
-//  Version 1.2.3
+//  Version 1.3
 //
 //  Created by Nick Lockwood on 31/10/2011.
 //  Copyright (c) 2011 Charcoal Design
@@ -36,6 +36,12 @@
 #import <objc/message.h>
 
 
+#import <Availability.h>
+#if !__has_feature(objc_arc)
+#error This class requires automatic reference counting
+#endif
+
+
 @interface FXImageOperation : NSOperation
 
 @property (nonatomic, strong) FXImageView *target;
@@ -56,8 +62,6 @@
 
 @implementation FXImageOperation
 
-@synthesize target = _target;
-
 - (void)main
 {
     @autoreleasepool
@@ -66,36 +70,12 @@
     }
 }
 
-#if !__has_feature(objc_arc)
-
-- (void)dealloc
-{
-    [_target release];
-    [super dealloc];
-}
-
-#endif
-
 @end
 
 
 @implementation FXImageView
 
-@synthesize asynchronous = _asynchronous;
-@synthesize reflectionGap = _reflectionGap;
-@synthesize reflectionScale = _reflectionScale;
-@synthesize reflectionAlpha = _reflectionAlpha;
-@synthesize shadowColor = _shadowColor;
-@synthesize shadowOffset = _shadowOffset;
-@synthesize shadowBlur = _shadowBlur;
-@synthesize cornerRadius = _cornerRadius;
-@synthesize customEffectsBlock = _customEffectsBlock;
 @synthesize cacheKey = _cacheKey;
-
-@synthesize originalImage = _originalImage;
-@synthesize imageView = _imageView;
-@synthesize imageContentURL = _imageContentURL;
-
 
 #pragma mark -
 #pragma mark Shared storage
@@ -117,6 +97,10 @@
     if (sharedCache == nil)
     {
         sharedCache = [[NSCache alloc] init];
+        [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidReceiveMemoryWarningNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(__unused NSNotification *note) {
+            
+            [sharedCache removeAllObjects];
+        }];
     }
     return sharedCache;
 }
@@ -128,6 +112,7 @@
 - (void)setUp
 {
     self.shadowColor = [UIColor blackColor];
+    _crossfadeDuration = 0.25;
     _imageView = [[UIImageView alloc] initWithFrame:self.bounds];
     _imageView.contentMode = UIViewContentModeCenter;
     [self addSubview:_imageView];
@@ -171,21 +156,6 @@
     return self;
 }
 
-#if !__has_feature(objc_arc)
-
-- (void)dealloc
-{
-    [_customEffectsBlock release];
-    [_cacheKey release];
-    [_originalImage release];
-    [_shadowColor release];
-    [_imageView release];
-    [_imageContentURL release];
-    [super dealloc];    
-}
-
-#endif
-
 
 #pragma mark -
 #pragma mark Caching
@@ -198,7 +168,7 @@
         NSInteger componentCount = CGColorGetNumberOfComponents(color.CGColor);
         const CGFloat *components = CGColorGetComponents(color.CGColor);
         NSMutableArray *parts = [NSMutableArray arrayWithCapacity:componentCount];
-        for (int i = 0; i < componentCount; i++)
+        for (NSInteger i = 0; i < componentCount; i++)
         {
             [parts addObject:[NSString stringWithFormat:@"%.2f", components[i]]];
         }
@@ -207,18 +177,14 @@
     return colorString;
 }
 
-- (NSString *)imageHash:(UIImage *)image
+- (NSNumber *)imageHash:(UIImage *)image
 {
-    if (image == nil) {
-        return @"";
-    }
-
-    static NSInteger hashKey = 1;
-    NSString *number = objc_getAssociatedObject(image, @"FXImageHash");
+    static NSUInteger hashKey = 1;
+    static const char FXImageHash;
+    NSNumber *number = objc_getAssociatedObject(image, (void *)&FXImageHash);
     if (!number && image)
     {
-        number = [NSString stringWithFormat:@"%i", hashKey++];
-        objc_setAssociatedObject(image, @"FXImageHash", number, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(image, (void *)&FXImageHash, @(hashKey++), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     return number;
 }
@@ -227,7 +193,7 @@
 {
     if (_cacheKey) return _cacheKey;
     
-    return [NSString stringWithFormat:@"%@_%@_%.2f_%.2f_%.2f_%@_%@_%.2f_%.2f_%i",
+    return [NSString stringWithFormat:@"%@_%@_%.2f_%.2f_%.2f_%@_%@_%.2f_%.2f_%@",
             _imageContentURL ?: [self imageHash:_originalImage],
             NSStringFromCGSize(self.bounds.size),
             _reflectionGap,
@@ -237,7 +203,7 @@
             NSStringFromCGSize(_shadowOffset),
             _shadowBlur,
             _cornerRadius,
-            self.contentMode];
+            @(self.contentMode)];
 }
 
 - (void)cacheProcessedImage:(UIImage *)processedImage forKey:(NSString *)cacheKey
@@ -256,29 +222,33 @@
 - (void)setProcessedImageOnMainThread:(NSArray *)array
 {
     //get images
-    NSString *cacheKey = [array objectAtIndex:1];
-    UIImage *processedImage = [array objectAtIndex:0];
+    NSString *cacheKey = array[1];
+    UIImage *processedImage = array[0];
     processedImage = ([processedImage isKindOfClass:[NSNull class]])? nil: processedImage;
     
     if (processedImage)
     {
         //cache image
         [self cacheProcessedImage:processedImage forKey:cacheKey];
-    }
     
     //set image
     if ([[self cacheKey] isEqualToString:cacheKey])
     {
-        //implement crossfade transition without needing to import QuartzCore
-        id animation = objc_msgSend(NSClassFromString(@"CATransition"), @selector(animation));
-        objc_msgSend(animation, @selector(setType:), @"kCATransitionFade");
-        objc_msgSend(self.layer, @selector(addAnimation:forKey:), animation, nil);
+            if (_crossfadeDuration)
+            {
+                //jump through a few hoops to avoid QuartzCore framework dependency
+                CAAnimation *animation = [NSClassFromString(@"CATransition") animation];
+                [animation setValue:@"kCATransitionFade" forKey:@"type"];
+                animation.duration = _crossfadeDuration;
+                [self.layer addAnimation:animation forKey:nil];
+            }
         
         //set processed image
         [self willChangeValueForKey:@"processedImage"];
-        _imageView.image = processedImage;
+            _imageView.image = processedImage ?: _imageView.image;
         [self didChangeValueForKey:@"processedImage"];
     }
+}
 }
 
 - (void)processImage
@@ -297,15 +267,6 @@
     CGFloat cornerRadius = _cornerRadius;
     UIImage *(^customEffectsBlock)(UIImage *image) = [_customEffectsBlock copy];
     UIViewContentMode contentMode = self.contentMode;
-    
-#if !__has_feature(objc_arc)
-
-    [[image retain] autorelease];
-    [[imageURL retain] autorelease];
-    [[shadowColor retain] autorelease];
-    [customEffectsBlock autorelease];
-    
-#endif
     
     //check cache
     UIImage *processedImage = [self cachedProcessedImage];
@@ -327,7 +288,7 @@
             if (error)
             {
                 NSLog(@"Error loading image for URL: %@, %@", imageURL, error);
-                return;
+                image = nil;
             }
             else
             {
@@ -386,16 +347,13 @@
             [self cacheProcessedImage:processedImage forKey:cacheKey];
         }
         [self willChangeValueForKey:@"processedImage"];
-        _imageView.image = processedImage;
+        _imageView.image = processedImage ?: _imageView.image;
         [self didChangeValueForKey:@"processedImage"];
     }
     else
     {
         [self performSelectorOnMainThread:@selector(setProcessedImageOnMainThread:)
-                               withObject:[NSArray arrayWithObjects:
-                                           processedImage ?: self.processedImage,
-                                           cacheKey,
-                                           nil]
+                               withObject:@[processedImage ?: self.processedImage, cacheKey]
                             waitUntilDone:YES];
     }
 }
@@ -425,7 +383,7 @@
     NSInteger index = [queue operationCount] - maxOperations;
     if (index >= 0)
     {
-        NSOperation *op = [[queue operations] objectAtIndex:index];
+        NSOperation *op = [queue operations][index];
         if (![op isExecuting])
         {
             [op addDependency:operation];
@@ -450,13 +408,6 @@
     
     //queue operation
     [self queueProcessingOperation:operation];
-    
-#if !__has_feature(objc_arc)
-    
-    [operation release];
-    
-#endif
-    
 }
 
 - (void)updateProcessedImage
@@ -559,18 +510,7 @@
 {
     if (![_shadowColor isEqual:shadowColor])
     {
-        
-#if !__has_feature(objc_arc)
-        
-        [_shadowColor release];
-        _shadowColor = [shadowColor retain];
-        
-#else
-        
         _shadowColor = shadowColor;
-        
-#endif
-        
         [self setNeedsLayout];
     }
 }
@@ -613,7 +553,7 @@
 
 - (void)setCacheKey:(NSString *)cacheKey
 {
-    if (![cacheKey isEqual:_cacheKey])
+    if (![cacheKey isEqualToString:_cacheKey])
     {
         _cacheKey = [cacheKey copy];
         [self setNeedsLayout];
