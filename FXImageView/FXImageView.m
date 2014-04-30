@@ -238,9 +238,9 @@
         //cache image
         [self cacheProcessedImage:processedImage forKey:cacheKey];
     
-    //set image
-    if ([[self cacheKey] isEqualToString:cacheKey])
-    {
+        //set image
+        if ([[self cacheKey] isEqualToString:cacheKey])
+        {
             if (_crossfadeDuration)
             {
                 //jump through a few hoops to avoid QuartzCore framework dependency
@@ -251,11 +251,10 @@
             }
 
             //set processed image
-          [self setProcessedImageInternal:processedImage];
-          // processedImage ?: _imageView.image
+            [self setProcessedImageInternal:processedImage];
+            // processedImage ?: _imageView.image
         }
     }
-}
 }
 
 - (void)processImage
