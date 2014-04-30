@@ -1,7 +1,7 @@
 //
 //  UIImage+FX.m
 //
-//  Version 1.3
+//  Version 1.3.3
 //
 //  Created by Nick Lockwood on 31/10/2011.
 //  Copyright (c) 2011 Charcoal Design
@@ -31,6 +31,10 @@
 //
 
 #import "UIImage+FX.h"
+
+
+#pragma GCC diagnostic ignored "-Wconversion"
+
 
 @implementation UIImage (FX)
 
@@ -182,8 +186,9 @@
         {
             rect = CGRectMake(size.width - self.size.width, size.height - self.size.height, self.size.width, self.size.height);
             break;
-        }  
-        default:
+        }
+        case UIViewContentModeRedraw:
+        case UIViewContentModeScaleToFill:
         {
             rect = CGRectMake(0.0f, 0.0f, size.width, size.height);
             break;
@@ -326,20 +331,9 @@
 {
     //create drawing context
 	UIGraphicsBeginImageContextWithOptions(self.size, NO, 0.0f);
-    CGContextRef context = UIGraphicsGetCurrentContext();
     
     //clip image
-    CGContextBeginPath(context);
-    CGContextMoveToPoint(context, 0.0f, radius);
-    CGContextAddLineToPoint(context, 0.0f, self.size.height - radius);
-    CGContextAddArc(context, radius, self.size.height - radius, radius, M_PI, M_PI / 2.0f, 1);
-    CGContextAddLineToPoint(context, self.size.width - radius, self.size.height);
-    CGContextAddArc(context, self.size.width - radius, self.size.height - radius, radius, M_PI / 2.0f, 0.0f, 1);
-    CGContextAddLineToPoint(context, self.size.width, radius);
-    CGContextAddArc(context, self.size.width - radius, radius, radius, 0.0f, -M_PI / 2.0f, 1);
-    CGContextAddLineToPoint(context, radius, 0.0f);
-    CGContextAddArc(context, radius, radius, radius, -M_PI / 2.0f, M_PI, 1);
-    CGContextClip(context);
+    [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, self.size.width, self.size.height) cornerRadius:radius] addClip];
     
     //draw image
     [self drawAtPoint:CGPointZero];

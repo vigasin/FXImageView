@@ -1,7 +1,7 @@
 //
 //  FXImageView.m
 //
-//  Version 1.3
+//  Version 1.3.3
 //
 //  Created by Nick Lockwood on 31/10/2011.
 //  Copyright (c) 2011 Charcoal Design
@@ -36,6 +36,12 @@
 #import <objc/message.h>
 
 
+#pragma GCC diagnostic ignored "-Wobjc-missing-property-synthesis"
+#pragma GCC diagnostic ignored "-Wdirect-ivar-access"
+#pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Wgnu"
+
+
 #import <Availability.h>
 #if !__has_feature(objc_arc)
 #error This class requires automatic reference counting
@@ -52,7 +58,6 @@
 @interface FXImageView ()
 
 @property (nonatomic, strong) UIImage *originalImage;
-@property (nonatomic, strong) UIImageView *imageView;
 @property (nonatomic, strong) NSURL *imageContentURL;
 
 - (void)processImage;
@@ -76,6 +81,7 @@
 @implementation FXImageView
 
 @synthesize cacheKey = _cacheKey;
+@synthesize contentMode = _contentMode;
 
 #pragma mark -
 #pragma mark Shared storage
@@ -83,25 +89,29 @@
 + (NSOperationQueue *)processingQueue
 {
     static NSOperationQueue *sharedQueue = nil;
-    if (sharedQueue == nil)
-    {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        
         sharedQueue = [[NSOperationQueue alloc] init];
         [sharedQueue setMaxConcurrentOperationCount:4];
-    }
+    });
+    
     return sharedQueue;
 }
 
 + (NSCache *)processedImageCache
 {
     static NSCache *sharedCache = nil;
-    if (sharedCache == nil)
-    {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        
         sharedCache = [[NSCache alloc] init];
         [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidReceiveMemoryWarningNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(__unused NSNotification *note) {
             
             [sharedCache removeAllObjects];
         }];
-    }
+    });
+
     return sharedCache;
 }
 
@@ -113,10 +123,8 @@
 {
     self.shadowColor = [UIColor blackColor];
     _crossfadeDuration = 0.25;
-    _imageView = [[UIImageView alloc] initWithFrame:self.bounds];
-    _imageView.contentMode = UIViewContentModeCenter;
-    [self addSubview:_imageView];
-    [self setImage:super.image];
+    super.contentMode = UIViewContentModeCenter;
+    self.image = super.image;
     super.image = nil;
 }
 
@@ -147,46 +155,45 @@
     return self;
 }
 
-- (id)initWithCoder:(NSCoder *)aDecoder
+- (void)awakeFromNib
 {
-    if ((self = [super initWithCoder:aDecoder]))
-    {
-        [self setUp];
-    }
-    return self;
+    [super awakeFromNib];
+    [self setUp];
 }
-
 
 #pragma mark -
 #pragma mark Caching
 
 - (NSString *)colorHash:(UIColor *)color
 {
-    NSString *colorString = @"{0.00,0.00}";
+    NSString *colorString = @"{0.00, 0.00}";
     if (color && ![color isEqual:[UIColor clearColor]])
     {
-        NSInteger componentCount = CGColorGetNumberOfComponents(color.CGColor);
+        size_t componentCount = CGColorGetNumberOfComponents(color.CGColor);
         const CGFloat *components = CGColorGetComponents(color.CGColor);
         NSMutableArray *parts = [NSMutableArray arrayWithCapacity:componentCount];
-        for (NSInteger i = 0; i < componentCount; i++)
+        for (size_t i = 0; i < componentCount; i++)
         {
             [parts addObject:[NSString stringWithFormat:@"%.2f", components[i]]];
         }
-        colorString = [NSString stringWithFormat:@"{%@}", [parts componentsJoinedByString:@","]];
+        colorString = [NSString stringWithFormat:@"{%@}", [parts componentsJoinedByString:@", "]];
     }
     return colorString;
 }
 
 - (NSNumber *)imageHash:(UIImage *)image
 {
-    static NSUInteger hashKey = 1;
-    static const char FXImageHash;
-    NSNumber *number = objc_getAssociatedObject(image, (void *)&FXImageHash);
-    if (!number && image)
+    @synchronized([self class])
     {
-        objc_setAssociatedObject(image, (void *)&FXImageHash, @(hashKey++), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        static NSUInteger hashKey = 1;
+        static const void *FXImageHashKey = &FXImageHashKey;
+        NSNumber *number = objc_getAssociatedObject(image, FXImageHashKey);
+        if (!number && image)
+        {
+            objc_setAssociatedObject(image, FXImageHashKey, @(hashKey++), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        return number;
     }
-    return number;
 }
 
 - (NSString *)cacheKey
@@ -242,11 +249,11 @@
                 animation.duration = _crossfadeDuration;
                 [self.layer addAnimation:animation forKey:nil];
             }
-        
-        //set processed image
-        [self willChangeValueForKey:@"processedImage"];
-            _imageView.image = processedImage ?: _imageView.image;
-        [self didChangeValueForKey:@"processedImage"];
+
+            //set processed image
+          [self setProcessedImageInternal:processedImage];
+          // processedImage ?: _imageView.image
+        }
     }
 }
 }
@@ -346,9 +353,7 @@
         {
             [self cacheProcessedImage:processedImage forKey:cacheKey];
         }
-        [self willChangeValueForKey:@"processedImage"];
-        _imageView.image = processedImage ?: _imageView.image;
-        [self didChangeValueForKey:@"processedImage"];
+        [self setProcessedImageInternal:processedImage];
     }
     else
     {
@@ -420,9 +425,7 @@
     if (processedImage)
     {
         //use cached version
-        [self willChangeValueForKey:@"processedImage"];
-        _imageView.image = ([processedImage isKindOfClass:[NSNull class]])? nil: processedImage;
-        [self didChangeValueForKey:@"processedImage"];
+        [self setProcessedImageInternal:[processedImage isKindOfClass:[NSNull class]]? nil: processedImage];
     }
     else if (_asynchronous)
     {
@@ -438,7 +441,7 @@
 
 - (void)layoutSubviews
 {
-    _imageView.frame = self.bounds;
+    [super layoutSubviews];
     if (_imageContentURL || self.image)
     {
         [self updateProcessedImage];
@@ -449,18 +452,25 @@
 #pragma mark -
 #pragma mark Setters and getters
 
-- (UIImage *)processedImage
-{
-    return _imageView.image;
-}
-
-- (void)setProcessedImage:(UIImage *)image
+- (void)setProcessedImage:(UIImage *)processedImage
 {
     self.imageContentURL = nil;
-    [self willChangeValueForKey:@"image"];
-    self.originalImage = nil;
-    [self didChangeValueForKey:@"image"];
-    _imageView.image = image;
+    if (self.originalImage)
+    {
+        [self willChangeValueForKey:@"image"];
+        self.originalImage = nil;
+        [self didChangeValueForKey:@"image"];
+    }
+    [self setProcessedImageInternal:processedImage];
+}
+
+- (void)setProcessedImageInternal:(UIImage *)processedImage
+{
+    [self willChangeValueForKey:@"processedImage"];
+    _processedImage = processedImage;
+    self.layer.contentsScale = processedImage.scale;
+    self.layer.contents = (id)_processedImage.CGImage;
+    [self didChangeValueForKey:@"processedImage"];
 }
 
 - (UIImage *)image
@@ -481,7 +491,7 @@
 
 - (void)setReflectionGap:(CGFloat)reflectionGap
 {
-    if (_reflectionGap != reflectionGap)
+    if (fabs(_reflectionGap - reflectionGap) > 0.001)
     {
         _reflectionGap = reflectionGap;
         [self setNeedsLayout];
@@ -490,7 +500,7 @@
 
 - (void)setReflectionScale:(CGFloat)reflectionScale
 {
-    if (_reflectionScale != reflectionScale)
+    if (fabs(_reflectionScale - reflectionScale) > 0.001)
     {
         _reflectionScale = reflectionScale;
         [self setNeedsLayout];
@@ -499,7 +509,7 @@
 
 - (void)setReflectionAlpha:(CGFloat)reflectionAlpha
 {
-    if (_reflectionAlpha != reflectionAlpha)
+    if (fabs(_reflectionAlpha - reflectionAlpha) > 0.001)
     {
         _reflectionAlpha = reflectionAlpha;
         [self setNeedsLayout];
@@ -526,18 +536,27 @@
 
 - (void)setShadowBlur:(CGFloat)shadowBlur
 {
-    if (_shadowBlur != shadowBlur)
+    if (fabs(_shadowBlur - shadowBlur) > 0.001)
     {
         _shadowBlur = shadowBlur;
         [self setNeedsLayout];
     }
 }
 
+- (void)setCornerRadius:(CGFloat)cornerRadius
+{
+    if (fabs(_cornerRadius - cornerRadius) > 0.001)
+    {
+        _cornerRadius = cornerRadius;
+        [self setNeedsLayout];
+    }
+}
+
 - (void)setContentMode:(UIViewContentMode)contentMode
 {
-    if (self.contentMode != contentMode)
+    if (_contentMode != contentMode)
     {
-        super.contentMode = contentMode;
+        _contentMode = contentMode;
         [self setNeedsLayout];
     }
 }
