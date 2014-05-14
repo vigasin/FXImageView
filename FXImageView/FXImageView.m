@@ -474,7 +474,7 @@
 
 - (UIImage *)image
 {
-    return _originalImage;
+    return _processedImage ? _processedImage : _originalImage;
 }
 
 - (void)setImage:(UIImage *)image
