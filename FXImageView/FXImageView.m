@@ -30,7 +30,7 @@
 //  3. This notice may not be removed or altered from any source distribution.
 //
 
-#import "NSData+Base64.h"
+#import "HDWNetUtil.h"
 #import "FXImageView.h"
 #import "UIImage+FX.h"
 #import <objc/message.h>
@@ -286,10 +286,7 @@
         {
             NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:imageURL cachePolicy:NSURLRequestReturnCacheDataElseLoad timeoutInterval:30.0];
             
-            NSString *basicAuthCredentials = [NSString stringWithFormat:@"%@:%@", imageURL.user, imageURL.password];
-            NSData *plainTextData = [basicAuthCredentials dataUsingEncoding:NSUTF8StringEncoding];
-            NSString *base64basicAuthCredentials = [plainTextData base64EncodedString];
-            [request setValue:[NSString stringWithFormat:@"Basic %@", base64basicAuthCredentials] forHTTPHeaderField:@"Authorization"];
+            [request setValue:[HDWNetUtil basicAuthValueForUser:imageURL.user andPassword:imageURL.password] forHTTPHeaderField:@"Authorization"];
             
             NSError *error = nil;
             NSURLResponse *response = nil;
