@@ -285,11 +285,13 @@
         if (imageURL)
         {
             NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:imageURL cachePolicy:NSURLRequestReturnCacheDataElseLoad timeoutInterval:30.0];
-            
-            NSString *basicAuthCredentials = [NSString stringWithFormat:@"%@:%@", imageURL.user, imageURL.password];
-            NSData *plainTextData = [basicAuthCredentials dataUsingEncoding:NSUTF8StringEncoding];
-            NSString *base64basicAuthCredentials = [plainTextData base64EncodedString];
-            [request setValue:[NSString stringWithFormat:@"Basic %@", base64basicAuthCredentials] forHTTPHeaderField:@"Authorization"];
+           
+            if ([imageURL.scheme isEqualToString:@"https"]) {
+                NSString *basicAuthCredentials = [NSString stringWithFormat:@"%@:%@", imageURL.user, imageURL.password];
+                NSData *plainTextData = [basicAuthCredentials dataUsingEncoding:NSUTF8StringEncoding];
+                NSString *base64basicAuthCredentials = [plainTextData base64EncodedString];
+                [request setValue:[NSString stringWithFormat:@"Basic %@", base64basicAuthCredentials] forHTTPHeaderField:@"Authorization"];
+            }
             
             NSError *error = nil;
             NSURLResponse *response = nil;
