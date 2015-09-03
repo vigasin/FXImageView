@@ -59,6 +59,7 @@
 
 - (void)setImageWithContentsOfFile:(NSString *)file;
 - (void)setImageWithContentsOfURL:(NSURL *)URL;
+- (void)setImageWithContentsOfURL:(NSURL *)URL withCredential:(NSURLCredential *)credential useBasicAuth:(BOOL)useBasicAuth;
 
 @end
 

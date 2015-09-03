@@ -59,6 +59,8 @@
 
 @property (nonatomic, strong) UIImage *originalImage;
 @property (nonatomic, strong) NSURL *imageContentURL;
+@property (nonatomic, strong) NSURLCredential *credential;
+@property (nonatomic) BOOL useBasicAuth;
 
 - (void)processImage;
 
@@ -266,6 +268,8 @@
     NSString *cacheKey = [self cacheKey];
     UIImage *image = _originalImage;
     NSURL *imageURL = _imageContentURL;
+    NSURLCredential *credential = _credential;
+    BOOL useBasicAuth = _useBasicAuth;
     CGSize size = self.bounds.size;
     CGFloat reflectionGap = _reflectionGap;
     CGFloat reflectionScale = _reflectionScale;
@@ -286,8 +290,8 @@
         {
             NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:imageURL cachePolicy:NSURLRequestReturnCacheDataElseLoad timeoutInterval:30.0];
            
-            if ([imageURL.scheme isEqualToString:@"https"]) {
-                NSString *basicAuthCredentials = [NSString stringWithFormat:@"%@:%@", imageURL.user, imageURL.password];
+            if (useBasicAuth) {
+                NSString *basicAuthCredentials = [NSString stringWithFormat:@"%@:%@", _credential.user, _credential.password];
                 NSData *plainTextData = [basicAuthCredentials dataUsingEncoding:NSUTF8StringEncoding];
                 NSString *base64basicAuthCredentials = [plainTextData base64EncodedString];
                 [request setValue:[NSString stringWithFormat:@"Basic %@", base64basicAuthCredentials] forHTTPHeaderField:@"Authorization"];
@@ -663,4 +667,9 @@
     }
 }
 
+- (void)setImageWithContentsOfURL:(NSURL *)URL withCredential:(NSURLCredential *)credential useBasicAuth:(BOOL)useBasicAuth {
+    [self setImageWithContentsOfURL:URL];
+    self.credential = credential;
+    self.useBasicAuth = useBasicAuth;
+}
 @end
